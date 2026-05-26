@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pose Generator</title>
+  </head>
+  <body>
+    <pre id="status">loading</pre>
+    <video id="video" muted playsinline crossorigin="anonymous"></video>
+    <canvas id="canvas"></canvas>
+    <script type="module">
+      import * as poseDetection from '@tensorflow-models/pose-detection';
+      import * as tf from '@tensorflow/tfjs-core';
+      import '@tensorflow/tfjs-backend-cpu';
+      import '@tensorflow/tfjs-backend-webgl';
+
+      const status = document.getElementById('status');
+      const video = document.getElementById('video');
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      const params = new URLSearchParams(window.location.search);
+      const src = params.get('src') || '/courses/strength1_10s.mp4';
+      const sampleRate = Number(params.get('sampleRate') || '10');
+      const maxWidth = Number(params.get('maxWidth') || '640');
+      const minScore = Number(params.get('minScore') || '0.2');
+      const step = 1 / sampleRate;
+
+      window.__POSE_STATUS__ = { state: 'loading', progress: 0 };
+      const setStatus = (state, details = {}) => {
+        window.__POSE_STATUS__ = { state, ...details };
+        status.textContent = JSON.stringify(window.__POSE_STATUS__, null, 2);
+      };
+
+      const waitForEvent = (target, name) => new Promise((resolve, reject) => {
+        const timer = window.setTimeout(() => reject(new Error(`Timed out waiting for ${name}`)), 45000);
+        target.addEventListener(name, () => {
+          window.clearTimeout(timer);
+          resolve();
+        }, { once: true });
+      });
+
+      const seekTo = async (time) => {
+        const target = Math.min(time, Math.max(0, video.duration - 0.001));
+        if (Math.abs(video.currentTime - target) < 0.003) {
+          await new Promise((resolve) => setTimeout(resolve, 40));
+          return;
+        }
+        video.currentTime = target;
+        await waitForEvent(video, 'seeked');
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      };
+
+      const serializePose = (pose, time) => ({
+        time: Number(time.toFixed(3)),
+        score: pose?.score ?? null,
+        keypoints: (pose?.keypoints ?? [])
+          .filter((point) => (point.score ?? 0) >= minScore)
+          .map((point) => ({
+            name: point.name || point.part,
+            x: Number(point.x.toFixed(3)),
+            y: Number(point.y.toFixed(3)),
+            score: Number((point.score ?? 0).toFixed(4))
+          }))
+      });
+
+      try {
+        setStatus('loading-video', { src });
+        video.src = src;
+        video.preload = 'auto';
+        await waitForEvent(video, 'loadedmetadata');
+        await waitForEvent(video, 'loadeddata');
+        const scale = Math.min(1, maxWidth / video.videoWidth);
+        const detectWidth = Math.round(video.videoWidth * scale);
+        const detectHeight = Math.round(video.videoHeight * scale);
+        video.width = detectWidth;
+        video.height = detectHeight;
+        canvas.width = detectWidth;
+        canvas.height = detectHeight;
+        canvas.style.width = `${detectWidth}px`;
+        canvas.style.height = `${detectHeight}px`;
+
+        setStatus('loading-model', {
+          duration: video.duration,
+          width: detectWidth,
+          height: detectHeight,
+          originalWidth: video.videoWidth,
+          originalHeight: video.videoHeight
+        });
+        await tf.setBackend('webgl').catch(() => tf.setBackend('cpu'));
+        await tf.ready();
+        const detector = await poseDetection.createDetector(
+          poseDetection.SupportedModels.MoveNet,
+          { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+        );
+
+        const frames = [];
+        const totalFrames = Math.max(1, Math.floor(video.duration * sampleRate) + 1);
+        for (let index = 0; index < totalFrames; index += 1) {
+          const time = Math.min(index * step, video.duration);
+          await seekTo(time);
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const poses = await detector.estimatePoses(canvas);
+          frames.push(serializePose(poses[0] ?? null, time));
+          setStatus('detecting', {
+            current: index + 1,
+            total: totalFrames,
+            progress: Number(((index + 1) / totalFrames).toFixed(3))
+          });
+        }
+
+        detector.dispose?.();
+        window.__POSE_RESULT__ = {
+          source: src,
+          generatedAt: new Date().toISOString(),
+          model: 'MoveNet SinglePose Lightning',
+          sampleRate,
+          duration: Number(video.duration.toFixed(3)),
+          width: canvas.width,
+          height: canvas.height,
+          originalWidth: video.videoWidth,
+          originalHeight: video.videoHeight,
+          frames
+        };
+        setStatus('done', {
+          frames: frames.length,
+          duration: window.__POSE_RESULT__.duration,
+          width: canvas.width,
+          height: canvas.height
+        });
+      } catch (error) {
+        window.__POSE_ERROR__ = error?.stack || error?.message || String(error);
+        setStatus('error', { message: window.__POSE_ERROR__ });
+      }
+    </script>
+  </body>
+</html>

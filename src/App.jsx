@@ -63,10 +63,6 @@ function isVisible(point, minScore = 0.32) {
   return point && (point.score ?? 0) >= minScore;
 }
 
-function clampCoordinate(value, min = 3, max = 97) {
-  return Math.min(max, Math.max(min, value));
-}
-
 function angleBetween(a, b, c) {
   if (!isVisible(a) || !isVisible(b) || !isVisible(c)) return null;
   const ab = { x: a.x - b.x, y: a.y - b.y };
@@ -234,7 +230,8 @@ const courses = [
     type: '力量',
     level: '进阶',
     image: asset('course-strength.jpg'),
-    standardVideo: '/courses/strength1.mp4',
+    standardVideo: '/courses/strength1_10s.mp4',
+    standardPose: '/courses/strength1_10s_pose.json',
     badge: '进阶',
     badgeTone: 'yellow'
   },
@@ -722,15 +719,20 @@ function ConsentModal({ onCancel, onAgree }) {
 }
 
 function TrainingSession({ course, cameraAllowed, onClose }) {
+  const standardVideoRef = useRef(null);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const detectorRef = useRef(null);
   const poseHistoryRef = useRef([]);
+  const standardFrameIndexRef = useRef(-1);
   const [seconds, setSeconds] = useState(1);
   const [cameraEnabled, setCameraEnabled] = useState(cameraAllowed);
   const [cameraState, setCameraState] = useState(cameraAllowed ? 'waiting' : 'disabled');
   const [detectorState, setDetectorState] = useState('idle');
   const [pose, setPose] = useState(null);
+  const [standardPoseData, setStandardPoseData] = useState(null);
+  const [standardPose, setStandardPose] = useState(null);
+  const [standardVideoSize, setStandardVideoSize] = useState({ width: 1, height: 1 });
   const [hotStats, setHotStats] = useState({ windowSize: 0, representativeIndexes: [] });
   const [videoSize, setVideoSize] = useState({ width: 1, height: 1 });
   const feedback = useMemo(
@@ -744,6 +746,59 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
     }, 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    standardFrameIndexRef.current = -1;
+    setStandardPose(null);
+    setStandardPoseData(null);
+
+    if (!course.standardPose) return undefined;
+
+    fetch(course.standardPose)
+      .then((response) => {
+        if (!response.ok) throw new Error(`Failed to load standard pose: ${response.status}`);
+        return response.json();
+      })
+      .then((data) => {
+        if (!active) return;
+        setStandardPoseData(data);
+        setStandardVideoSize({ width: data.width || 1, height: data.height || 1 });
+      })
+      .catch(() => {
+        if (!active) return;
+        setStandardPoseData(null);
+        setStandardPose(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [course.standardPose]);
+
+  useEffect(() => {
+    if (!standardPoseData?.frames?.length) return undefined;
+    let frameId = 0;
+
+    const updateStandardPose = () => {
+      const video = standardVideoRef.current;
+      if (video) {
+        const sampleRate = standardPoseData.sampleRate || 5;
+        const index = Math.min(
+          standardPoseData.frames.length - 1,
+          Math.max(0, Math.round(video.currentTime * sampleRate))
+        );
+        if (index !== standardFrameIndexRef.current) {
+          standardFrameIndexRef.current = index;
+          setStandardPose(standardPoseData.frames[index]);
+        }
+      }
+      frameId = window.requestAnimationFrame(updateStandardPose);
+    };
+
+    updateStandardPose();
+    return () => window.cancelAnimationFrame(frameId);
+  }, [standardPoseData]);
 
   useEffect(() => {
     let mounted = true;
@@ -886,16 +941,33 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
         <div className="pose-column">
           <h3>标准动作</h3>
           {course.standardVideo ? (
-            <video
-              className="standard-video"
-              src={course.standardVideo}
-              poster={course.image}
-              autoPlay
-              muted
-              loop
-              playsInline
-              controls
-            />
+            <div className="standard-media">
+              <video
+                ref={standardVideoRef}
+                className="standard-video"
+                src={course.standardVideo}
+                poster={course.image}
+                autoPlay
+                muted
+                loop
+                playsInline
+                controls
+              />
+              {standardPose && (
+                <PoseOverlay
+                  pose={standardPose}
+                  size={standardVideoSize}
+                  tone="standard"
+                  mirror={false}
+                  fit="contain"
+                />
+              )}
+              {standardPoseData && (
+                <span className="standard-pose-status">
+                  标准骨架 {standardPoseData.frames.length}帧
+                </span>
+              )}
+            </div>
           ) : (
             <img src={asset('standard-squat.jpg')} alt="" />
           )}
@@ -1002,16 +1074,24 @@ function PoseSkeleton({ tone }) {
   );
 }
 
-function PoseOverlay({ pose, size, tone }) {
+function PoseOverlay({ pose, size, tone, mirror = true, fit = 'stretch' }) {
   const points = pose?.keypoints ?? [];
   const pointMap = new Map(points.map((point) => [point.name || point.part, point]));
   const width = size.width || 1;
   const height = size.height || 1;
-  const projectX = (x) => 100 - (x / width) * 100;
-  const projectY = (y) => (y / height) * 100;
+  const radius = Math.max(5, Math.min(width, height) * 0.012);
+  const labelOffset = Math.max(10, width * 0.014);
+  const labelSize = Math.max(13, width * 0.026);
+  const projectX = (x) => (mirror ? width - x : x);
+  const projectY = (y) => y;
 
   return (
-    <svg className={`pose-overlay ${tone}`} viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+    <svg
+      className={`pose-overlay ${tone}`}
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio={fit === 'contain' ? 'xMidYMid meet' : 'none'}
+      aria-hidden="true"
+    >
       {poseLinks.map(([from, to]) => {
         const a = pointMap.get(from);
         const b = pointMap.get(to);
@@ -1033,7 +1113,7 @@ function PoseOverlay({ pose, size, tone }) {
             key={point.name || point.part}
             cx={projectX(point.x)}
             cy={projectY(point.y)}
-            r="1.6"
+            r={radius}
           />
         );
       })}
@@ -1042,13 +1122,14 @@ function PoseOverlay({ pose, size, tone }) {
         const name = point.name || point.part;
         const x = projectX(point.x);
         const y = projectY(point.y);
-        const onRight = x > 62;
+        const onRight = x > width * 0.62;
         return (
           <text
             key={`${name}-label`}
             className="joint-label"
-            x={clampCoordinate(x + (onRight ? -2.3 : 2.3), 4, 96)}
-            y={clampCoordinate(y - 2.2, 4, 96)}
+            style={{ fontSize: labelSize }}
+            x={Math.min(width - labelOffset, Math.max(labelOffset, x + (onRight ? -labelOffset : labelOffset)))}
+            y={Math.min(height - labelOffset, Math.max(labelOffset, y - labelOffset))}
             textAnchor={onRight ? 'end' : 'start'}
           >
             {keypointLabels[name] || name}

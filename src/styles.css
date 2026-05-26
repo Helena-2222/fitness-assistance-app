@@ -1081,6 +1081,7 @@ img {
 }
 
 .pose-column img,
+.standard-media,
 .standard-video,
 .camera-box {
   width: 100%;
@@ -1090,8 +1091,33 @@ img {
   background: var(--panel-2);
 }
 
+.standard-media {
+  position: relative;
+  overflow: hidden;
+  background: #08090d;
+}
+
 .standard-video {
   display: block;
+  height: 100%;
+  object-fit: contain;
+  background: #08090d;
+}
+
+.standard-pose-status {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 3;
+  min-height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  color: #071015;
+  background: #65e7ff;
+  font-size: 12px;
+  font-weight: 950;
 }
 
 .pose-column p {
@@ -1262,6 +1288,16 @@ img {
 .pose-overlay.great circle {
   stroke: #35e884;
   fill: #35e884;
+}
+
+.pose-overlay.standard {
+  filter: drop-shadow(0 0 9px rgba(101, 231, 255, 0.42));
+}
+
+.pose-overlay.standard line,
+.pose-overlay.standard circle {
+  stroke: #65e7ff;
+  fill: #65e7ff;
 }
 
 .ai-status {
@@ -1457,6 +1493,7 @@ img {
 }
 
 .device-frame.tablet .pose-column img,
+.device-frame.tablet .standard-media,
 .device-frame.tablet .standard-video,
 .device-frame.tablet .camera-box {
   height: 360px;
@@ -1607,6 +1644,7 @@ img {
 }
 
 .device-frame.desktop .pose-column img,
+.device-frame.desktop .standard-media,
 .device-frame.desktop .standard-video,
 .device-frame.desktop .camera-box {
   height: 390px;
