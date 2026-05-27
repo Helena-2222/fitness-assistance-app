@@ -1037,6 +1037,7 @@ img {
 .training-session {
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 32px 20px 30px;
 }
 
@@ -1073,11 +1074,15 @@ img {
 }
 
 .pose-column h3 {
+  min-height: 36px;
   margin: 0 0 14px;
   color: var(--muted);
   text-align: center;
   font-size: 17px;
   font-weight: 950;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .pose-column img,
@@ -1145,6 +1150,7 @@ img {
 }
 
 .camera-title-row h3 {
+  min-height: 0;
   margin: 0;
 }
 
@@ -1194,6 +1200,38 @@ img {
   color: var(--muted);
   font-size: 18px;
   font-weight: 850;
+}
+
+.camera-placeholder span {
+  max-width: 78%;
+  text-align: center;
+  line-height: 1.45;
+}
+
+.camera-placeholder small {
+  max-width: 82%;
+  color: #ffb84f;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.camera-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 3;
+  max-width: calc(100% - 32px);
+  transform: translateX(-50%);
+  padding: 9px 12px;
+  border-radius: 999px;
+  color: #07090d;
+  background: rgba(183, 255, 0, 0.92);
+  text-align: center;
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1.35;
 }
 
 .pose-skeleton {
@@ -1451,6 +1489,11 @@ img {
   font-weight: 950;
 }
 
+.pause-button.resume {
+  color: #081008;
+  background: var(--lime);
+}
+
 .device-frame.tablet .screen-body {
   padding-bottom: 108px;
 }
@@ -1628,11 +1671,13 @@ img {
 }
 
 .device-frame.desktop .training-session {
-  padding: 28px 36px;
+  padding: 20px 36px 22px;
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.6fr);
-  gap: 24px;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 18px 24px;
   align-items: start;
+  scrollbar-gutter: stable;
 }
 
 .device-frame.desktop .session-top {
@@ -1640,7 +1685,35 @@ img {
 }
 
 .device-frame.desktop .pose-panel {
+  grid-column: 1;
+  grid-row: 2 / 5;
   margin-top: 0;
+  align-items: start;
+}
+
+.device-frame.desktop .pose-column {
+  display: grid;
+  grid-template-rows: 36px 390px 46px;
+  align-items: start;
+}
+
+.device-frame.desktop .camera-title-row {
+  height: 40px;
+  margin-bottom: 18px;
+  align-items: center;
+}
+
+.device-frame.desktop .pose-column h3 {
+  height: 40px;
+  margin-bottom: 18px;
+}
+
+.device-frame.desktop .camera-title-row .camera-toggle {
+  transform: translateY(-6px);
+}
+
+.device-frame.desktop .pose-column:first-child > h3 {
+  transform: translateY(-5px);
 }
 
 .device-frame.desktop .pose-column img,
@@ -1650,13 +1723,44 @@ img {
   height: 390px;
 }
 
+.device-frame.desktop .pose-column p {
+  min-height: 46px;
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .device-frame.desktop .session-feedback,
 .device-frame.desktop .time-block,
 .device-frame.desktop .pause-button {
   grid-column: 2;
 }
 
+.device-frame.desktop .session-feedback {
+  grid-row: 2;
+  margin-top: 4px;
+}
+
 .device-frame.desktop .session-feedback h2 {
+  margin-bottom: 12px;
+}
+
+.device-frame.desktop .feedback-banner {
+  min-height: 54px;
+  margin-top: 16px;
+}
+
+.device-frame.desktop .time-block {
+  grid-row: 3;
+  align-self: end;
+  margin-top: 0;
+}
+
+.device-frame.desktop .pause-button {
+  grid-row: 4;
+  align-self: end;
+  height: 68px;
   margin-top: 0;
 }
 

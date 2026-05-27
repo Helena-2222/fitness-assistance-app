@@ -80,40 +80,171 @@ function centerOf(a, b) {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
+const matchKeypoints = [
+  'left_shoulder',
+  'right_shoulder',
+  'left_elbow',
+  'right_elbow',
+  'left_wrist',
+  'right_wrist',
+  'left_hip',
+  'right_hip',
+  'left_knee',
+  'right_knee',
+  'left_ankle',
+  'right_ankle'
+];
+
+function getPoseAnchor(pose) {
+  const leftHip = pointByName(pose, 'left_hip');
+  const rightHip = pointByName(pose, 'right_hip');
+  const leftShoulder = pointByName(pose, 'left_shoulder');
+  const rightShoulder = pointByName(pose, 'right_shoulder');
+  const hipCenter = centerOf(leftHip, rightHip);
+  const shoulderCenter = centerOf(leftShoulder, rightShoulder);
+  if (hipCenter && shoulderCenter) {
+    const torsoLength = Math.hypot(shoulderCenter.x - hipCenter.x, shoulderCenter.y - hipCenter.y);
+    return {
+      center: { x: (hipCenter.x + shoulderCenter.x) / 2, y: (hipCenter.y + shoulderCenter.y) / 2 },
+      scale: Math.max(40, torsoLength)
+    };
+  }
+  if (hipCenter) return { center: hipCenter, scale: 80 };
+  if (shoulderCenter) return { center: shoulderCenter, scale: 80 };
+  return null;
+}
+
+function normalizedPoint(pose, name, anchor) {
+  const point = pointByName(pose, name);
+  if (!isVisible(point) || !anchor) return null;
+  return {
+    x: (point.x - anchor.center.x) / anchor.scale,
+    y: (point.y - anchor.center.y) / anchor.scale
+  };
+}
+
+function compareToStandardPose(userPose, standardPose) {
+  const userAnchor = getPoseAnchor(userPose);
+  const standardAnchor = getPoseAnchor(standardPose);
+  if (!userAnchor || !standardAnchor) return null;
+
+  const distances = [];
+  for (const name of matchKeypoints) {
+    const userPoint = normalizedPoint(userPose, name, userAnchor);
+    const standardPoint = normalizedPoint(standardPose, name, standardAnchor);
+    if (!userPoint || !standardPoint) continue;
+    distances.push(Math.hypot(userPoint.x - standardPoint.x, userPoint.y - standardPoint.y));
+  }
+
+  if (distances.length < 6) return null;
+  const averageDistance = distances.reduce((sum, value) => sum + value, 0) / distances.length;
+  const score = Math.max(28, Math.min(100, Math.round(100 - averageDistance * 52)));
+  return { score, matchedPoints: distances.length, averageDistance };
+}
+
+function poseDistance(poseA, poseB) {
+  const anchorA = getPoseAnchor(poseA);
+  const anchorB = getPoseAnchor(poseB);
+  if (!anchorA || !anchorB) return 0;
+
+  const distances = [];
+  for (const name of matchKeypoints) {
+    const pointA = normalizedPoint(poseA, name, anchorA);
+    const pointB = normalizedPoint(poseB, name, anchorB);
+    if (!pointA || !pointB) continue;
+    distances.push(Math.hypot(pointA.x - pointB.x, pointA.y - pointB.y));
+  }
+
+  if (distances.length < 5) return 0;
+  return distances.reduce((sum, value) => sum + value, 0) / distances.length;
+}
+
+function calculateRecentMotion(history) {
+  if (!history || history.length < 10) return 0;
+  const latest = history[history.length - 1];
+  const previous = history[Math.max(0, history.length - 18)];
+  return poseDistance(latest, previous);
+}
+
+function average(values) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
 function fallbackFeedback(seconds) {
   const cycle = seconds % 12;
   if (cycle < 4) {
     return {
-      action: '深蹲',
+      action: '跟练评分',
       score: 92,
       message: '准备开始，保持节奏...',
-      cue: '双脚与肩同宽，屈髋屈膝下蹲',
+      cue: '先观察左侧标准动作，准备跟随节奏',
       tone: 'good'
     };
   }
   if (cycle < 8) {
     return {
-      action: '深蹲',
+      action: '跟练评分',
       score: 78,
-      message: '膝盖略向外打开',
-      cue: '保持背部挺直，重心落在脚跟',
+      message: '注意动作幅度和节奏',
+      cue: '让身体关键点尽量完整入镜',
       tone: 'warn'
     };
   }
   return {
-    action: '深蹲',
+    action: '跟练评分',
     score: 96,
     message: '动作标准，继续保持！',
-    cue: '起身时核心收紧，呼气发力',
+    cue: '保持稳定呼吸，跟随标准动作节奏',
     tone: 'great'
   };
 }
 
-function analyzePoseFeedback(pose, seconds, cameraState, detectorState) {
+function stableTrainingFeedback(trainingStatus) {
+  if (trainingStatus === 'paused') {
+    return {
+      action: '跟练评分',
+      score: 0,
+      message: '训练已暂停',
+      cue: '点击继续后再恢复动作评分',
+      tone: 'good',
+      locked: true
+    };
+  }
+  return {
+    action: '跟练评分',
+    score: 0,
+    message: '准备开始',
+    cue: '先调整站位，点击开始后再进行评分',
+    tone: 'good',
+    locked: true
+  };
+}
+
+function hasEnoughKeypointsForStandard(pose, standardPose) {
+  if (!standardPose) return true;
+  const requiredNames = matchKeypoints.filter((name) => isVisible(pointByName(standardPose, name), 0.28));
+  if (requiredNames.length < 6) return true;
+  const visibleRequiredCount = requiredNames.filter((name) => isVisible(pointByName(pose, name))).length;
+  const minRequired = Math.max(6, Math.ceil(requiredNames.length * 0.72));
+  return visibleRequiredCount >= minRequired;
+}
+
+function analyzePoseFeedback(
+  pose,
+  standardPose,
+  seconds,
+  cameraState,
+  detectorState,
+  evaluationType = 'follow-along',
+  trainingStatus = 'active',
+  motion = { user: 0, standard: 0, userAverage: 0, standardAverage: 0 }
+) {
+  if (trainingStatus !== 'active') return stableTrainingFeedback(trainingStatus);
   if (cameraState !== 'ready') return fallbackFeedback(seconds);
   if (detectorState === 'loading') {
     return {
-      action: '深蹲',
+      action: '跟练评分',
       score: 68,
       message: '姿态模型加载中...',
       cue: '请保持全身在画面内',
@@ -122,7 +253,7 @@ function analyzePoseFeedback(pose, seconds, cameraState, detectorState) {
   }
   if (detectorState === 'error') {
     return {
-      action: '深蹲',
+      action: '跟练评分',
       score: 70,
       message: '检测模型未加载，使用演示反馈',
       cue: '网络恢复后可自动重试模型',
@@ -133,11 +264,87 @@ function analyzePoseFeedback(pose, seconds, cameraState, detectorState) {
   const visiblePoints = pose?.keypoints?.filter((point) => isVisible(point)) ?? [];
   if (visiblePoints.length < 7) {
     return {
-      action: '深蹲',
-      score: 52,
-      message: '站入画面，保持全身可见',
-      cue: '露出肩、髋、膝、踝关键点',
-      tone: 'warn'
+      action: '跟练评分',
+      score: 0,
+      message: '请先完整进入画面',
+      cue: '当前标准动作需要更多关键点，请后退并露出上半身和手臂',
+      tone: 'warn',
+      locked: true
+    };
+  }
+
+  if (!hasEnoughKeypointsForStandard(pose, standardPose)) {
+    return {
+      action: '跟练评分',
+      score: 0,
+      message: '请先完整进入画面',
+      cue: '当前标准动作需要更多关键点，请后退并露出上半身和手臂',
+      tone: 'warn',
+      locked: true
+    };
+  }
+
+  if (evaluationType !== 'squat') {
+    const matchResult = compareToStandardPose(pose, standardPose);
+    const visibilityScore = Math.min(100, Math.round((visiblePoints.length / matchKeypoints.length) * 100));
+    const standardMotion = Math.max(0.04, motion.standardAverage || motion.standard);
+    const userMotion = Math.max(motion.user, motion.userAverage);
+    const standardIsMoving = standardMotion > 0.1;
+    const motionRatio = standardIsMoving ? userMotion / Math.max(0.08, standardMotion) : 1;
+    const motionScore = standardIsMoving
+      ? Math.max(0, Math.min(100, Math.round(motionRatio * 135)))
+      : Math.max(62, Math.min(100, Math.round(100 - Math.abs(userMotion - standardMotion) * 160)));
+    let score = matchResult
+      ? Math.round(matchResult.score * 0.55 + motionScore * 0.35 + visibilityScore * 0.1)
+      : Math.round(motionScore * 0.55 + visibilityScore * 0.25);
+    let message = '跟练同步，继续保持！';
+    let cue = '保持当前节奏，继续跟随标准动作';
+    let tone = 'great';
+
+    if (!matchResult) {
+      score = Math.min(score, 68);
+      message = '正在建立标准动作匹配';
+      cue = '请让身体关键点更完整地进入画面';
+      tone = 'warn';
+    } else if (seconds < 4) {
+      score = Math.min(score, 58);
+      message = '正在观察动作节奏';
+      cue = '先跟着标准视频做完整几拍，系统会逐步更新评分';
+      tone = 'warn';
+    } else if (standardIsMoving && userMotion < 0.035 && motionRatio < 0.22) {
+      score = Math.min(score, 45);
+      message = '请跟上标准动作节奏';
+      cue = '标准动作正在变化，不要只保持站立姿势';
+      tone = 'warn';
+    } else if (standardIsMoving && motionRatio < 0.45) {
+      score = Math.min(score, 70);
+      message = '动作幅度偏小';
+      cue = '跟随左侧动作增加手臂或躯干活动幅度';
+      tone = 'warn';
+    } else if (score >= 88) {
+      message = '动作标准，继续保持！';
+      cue = '节奏和姿态匹配良好，保持稳定呼吸';
+      tone = 'great';
+    } else if (score >= 74) {
+      message = '基本同步，注意幅度';
+      cue = '观察左侧标准动作，微调手臂和躯干位置';
+      tone = 'good';
+    } else if (score >= 58) {
+      message = '节奏或幅度有偏差';
+      cue = '先放慢速度，对齐标准动作的关键姿态';
+      tone = 'warn';
+    } else {
+      message = '与标准动作差异较大';
+      cue = '建议暂停看清动作，再从当前小节重新跟练';
+      tone = 'warn';
+    }
+
+    return {
+      action: '跟练评分',
+      score: Math.max(30, Math.min(98, Math.round(score))),
+      message,
+      cue,
+      tone
     };
   }
 
@@ -168,16 +375,35 @@ function analyzePoseFeedback(pose, seconds, cameraState, detectorState) {
     ? Math.abs(leftKnee.x - rightKnee.x)
     : ankleWidth;
 
-  let score = 91;
+  const matchResult = compareToStandardPose(pose, standardPose);
+  let score = matchResult ? Math.round(matchResult.score * 0.72 + 24) : 91;
   let message = '动作标准，继续保持！';
   let cue = '核心收紧，起身时呼气发力';
   let tone = 'great';
 
+  if (matchResult) {
+    if (matchResult.score >= 86) {
+      message = '跟练同步，姿态匹配良好';
+      cue = '保持当前节奏，继续跟随标准动作';
+      tone = 'great';
+    } else if (matchResult.score >= 70) {
+      message = '动作基本同步，注意细节';
+      cue = '观察左侧标准动作，调整手臂和躯干位置';
+      tone = 'good';
+    } else {
+      message = '与标准动作差异较大';
+      cue = '放慢节奏，先对齐左侧标准动作姿态';
+      tone = 'warn';
+    }
+  }
+
   if (averageKneeAngle > 158) {
-    score = 82;
-    message = '开始下蹲，髋部向后坐';
-    cue = '膝盖跟随脚尖方向，重心保持稳定';
-    tone = 'good';
+    score -= 5;
+    if (!matchResult || matchResult.score >= 70) {
+      message = '开始发力，保持动作幅度';
+      cue = '膝盖跟随脚尖方向，重心保持稳定';
+      tone = 'good';
+    }
   }
 
   if (averageKneeAngle < 72) {
@@ -202,7 +428,7 @@ function analyzePoseFeedback(pose, seconds, cameraState, detectorState) {
   }
 
   return {
-    action: '深蹲',
+    action: '跟练评分',
     score: Math.max(45, Math.min(98, Math.round(score))),
     message,
     cue,
@@ -230,8 +456,9 @@ const courses = [
     type: '力量',
     level: '进阶',
     image: asset('course-strength.jpg'),
-    standardVideo: '/courses/strength1_10s.mp4',
-    standardPose: '/courses/strength1_10s_pose.json',
+    standardVideo: '/courses/strength2_30s_h264.mp4',
+    standardPose: '/courses/strength2_30s_pose.json',
+    evaluationType: 'follow-along',
     badge: '进阶',
     badgeTone: 'yellow'
   },
@@ -724,32 +951,106 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
   const streamRef = useRef(null);
   const detectorRef = useRef(null);
   const poseHistoryRef = useRef([]);
+  const userMotionHistoryRef = useRef([]);
+  const standardMotionHistoryRef = useRef([]);
+  const feedbackSamplesRef = useRef([]);
+  const lastFeedbackCommitSecondRef = useRef(null);
   const standardFrameIndexRef = useRef(-1);
   const [seconds, setSeconds] = useState(1);
   const [cameraEnabled, setCameraEnabled] = useState(cameraAllowed);
   const [cameraState, setCameraState] = useState(cameraAllowed ? 'waiting' : 'disabled');
+  const [cameraError, setCameraError] = useState('');
   const [detectorState, setDetectorState] = useState('idle');
+  const [hasStarted, setHasStarted] = useState(false);
+  const [isPaused, setIsPaused] = useState(true);
   const [pose, setPose] = useState(null);
   const [standardPoseData, setStandardPoseData] = useState(null);
   const [standardPose, setStandardPose] = useState(null);
   const [standardVideoSize, setStandardVideoSize] = useState({ width: 1, height: 1 });
   const [hotStats, setHotStats] = useState({ windowSize: 0, representativeIndexes: [] });
   const [videoSize, setVideoSize] = useState({ width: 1, height: 1 });
-  const feedback = useMemo(
-    () => analyzePoseFeedback(pose, seconds, cameraState, detectorState),
-    [pose, seconds, cameraState, detectorState]
+  const [motionSignals, setMotionSignals] = useState({ user: 0, standard: 0, userAverage: 0, standardAverage: 0 });
+  const trainingStatus = !hasStarted ? 'idle' : isPaused ? 'paused' : 'active';
+  const rawFeedback = useMemo(
+    () => analyzePoseFeedback(
+      pose,
+      standardPose,
+      seconds,
+      cameraState,
+      detectorState,
+      course.evaluationType,
+      trainingStatus,
+      motionSignals
+    ),
+    [pose, standardPose, seconds, cameraState, detectorState, course.evaluationType, trainingStatus, motionSignals]
   );
+  const [displayFeedback, setDisplayFeedback] = useState(rawFeedback);
+  const feedback = displayFeedback;
+  const cameraStatusText = useMemo(() => {
+    if (!cameraEnabled) return '相机已关闭';
+    if (cameraState === 'waiting') return '正在请求相机权限或等待视频流就绪';
+    if (cameraState === 'ready') return pose ? '已检测到人体骨架' : '相机已开启，请后退并保持全身入镜';
+    if (cameraState === 'denied') return '相机权限被拒绝，或设备被其他程序占用';
+    if (cameraState === 'unavailable') return '当前浏览器或设备不支持摄像头访问';
+    return '相机状态未知';
+  }, [cameraEnabled, cameraState, pose]);
 
   useEffect(() => {
+    setDisplayFeedback((current) => {
+      if (!current) return rawFeedback;
+
+      if (rawFeedback.locked || trainingStatus !== 'active') {
+        feedbackSamplesRef.current = [];
+        lastFeedbackCommitSecondRef.current = null;
+        return rawFeedback;
+      }
+
+      feedbackSamplesRef.current = [...feedbackSamplesRef.current.slice(-59), rawFeedback.score];
+      if (current.locked || lastFeedbackCommitSecondRef.current === null) {
+        lastFeedbackCommitSecondRef.current = seconds;
+        return rawFeedback;
+      }
+
+      if (seconds - lastFeedbackCommitSecondRef.current < 4) {
+        return current;
+      }
+
+      const sampledScore = Math.round(average(feedbackSamplesRef.current));
+      const nextScore = Math.abs(sampledScore - current.score) < 4 ? current.score : sampledScore;
+      lastFeedbackCommitSecondRef.current = seconds;
+      feedbackSamplesRef.current = [];
+
+      return {
+        ...rawFeedback,
+        score: nextScore
+      };
+    });
+  }, [rawFeedback, seconds, trainingStatus]);
+
+  useEffect(() => {
+    if (!hasStarted || isPaused) return undefined;
     const timer = window.setInterval(() => {
       setSeconds((value) => value + 1);
     }, 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [hasStarted, isPaused]);
+
+  useEffect(() => {
+    const video = standardVideoRef.current;
+    if (!video) return;
+
+    if (!hasStarted || isPaused) {
+      video.pause();
+      return;
+    }
+
+    video.play().catch(() => {});
+  }, [hasStarted, isPaused]);
 
   useEffect(() => {
     let active = true;
     standardFrameIndexRef.current = -1;
+    standardMotionHistoryRef.current = [];
     setStandardPose(null);
     setStandardPoseData(null);
 
@@ -789,8 +1090,18 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
           Math.max(0, Math.round(video.currentTime * sampleRate))
         );
         if (index !== standardFrameIndexRef.current) {
+          const previousIndex = Math.max(0, index - 4);
+          const standardMotion = poseDistance(standardPoseData.frames[index], standardPoseData.frames[previousIndex]);
+          standardMotionHistoryRef.current = [...standardMotionHistoryRef.current.slice(-9), standardMotion];
+          const standardAverage = average(standardMotionHistoryRef.current);
           standardFrameIndexRef.current = index;
           setStandardPose(standardPoseData.frames[index]);
+          setMotionSignals((signals) => (
+            Math.abs(signals.standard - standardMotion) < 0.005 &&
+            Math.abs(signals.standardAverage - standardAverage) < 0.005
+              ? signals
+              : { ...signals, standard: standardMotion, standardAverage }
+          ));
         }
       }
       frameId = window.requestAnimationFrame(updateStandardPose);
@@ -804,33 +1115,53 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
     let mounted = true;
     if (!cameraEnabled || !navigator.mediaDevices?.getUserMedia) {
       setCameraState(cameraEnabled ? 'unavailable' : 'disabled');
+      setCameraError('');
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
       }
       if (videoRef.current) videoRef.current.srcObject = null;
       poseHistoryRef.current = [];
+      userMotionHistoryRef.current = [];
       setPose(null);
       setHotStats({ windowSize: 0, representativeIndexes: [] });
+      setMotionSignals({ user: 0, standard: 0, userAverage: 0, standardAverage: 0 });
       return undefined;
     }
 
     setCameraState('waiting');
+    setCameraError('');
+    const attachStream = (stream) => {
+      if (!mounted) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      streamRef.current = stream;
+      setCameraState('ready');
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.muted = true;
+        videoRef.current.playsInline = true;
+        videoRef.current.autoplay = true;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(() => {});
+        };
+        videoRef.current.play().catch(() => {});
+      }
+    };
+
     navigator.mediaDevices
       .getUserMedia({ video: { facingMode: 'user' }, audio: false })
-      .then((stream) => {
-        if (!mounted) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        streamRef.current = stream;
-        setCameraState('ready');
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      })
-      .catch(() => setCameraState('denied'));
+      .then(attachStream)
+      .catch(() =>
+        navigator.mediaDevices
+          .getUserMedia({ video: true, audio: false })
+          .then(attachStream)
+          .catch((error) => {
+            setCameraError(error?.name || error?.message || 'unknown_error');
+            setCameraState('denied');
+          })
+      );
 
     return () => {
       mounted = false;
@@ -887,14 +1218,29 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
               if (detectedPose) {
                 poseHistoryRef.current = [...poseHistoryRef.current.slice(-23), detectedPose];
                 const hotResult = applyHotTemporalTokenizer(poseHistoryRef.current);
+                const userMotion = calculateRecentMotion(poseHistoryRef.current);
+                userMotionHistoryRef.current = [...userMotionHistoryRef.current.slice(-13), userMotion];
+                const userAverage = average(userMotionHistoryRef.current);
                 setPose(hotResult.pose);
                 setHotStats({
                   windowSize: hotResult.windowSize,
                   representativeIndexes: hotResult.representativeIndexes
                 });
+                setMotionSignals((signals) => (
+                  Math.abs(signals.user - userMotion) < 0.005 &&
+                  Math.abs(signals.userAverage - userAverage) < 0.005
+                    ? signals
+                    : { ...signals, user: userMotion, userAverage }
+                ));
               } else {
                 setPose(null);
                 setHotStats({ windowSize: poseHistoryRef.current.length, representativeIndexes: [] });
+                userMotionHistoryRef.current = [];
+                setMotionSignals((signals) => (
+                  signals.user === 0 && signals.userAverage === 0
+                    ? signals
+                    : { ...signals, user: 0, userAverage: 0 }
+                ));
               }
             }
           }
@@ -915,6 +1261,7 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
       detectorRef.current?.dispose?.();
       detectorRef.current = null;
       poseHistoryRef.current = [];
+      userMotionHistoryRef.current = [];
       setPose(null);
       setHotStats({ windowSize: 0, representativeIndexes: [] });
       setDetectorState('idle');
@@ -923,6 +1270,21 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
 
   const formatted = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
   const progress = Math.min((seconds / (15 * 60)) * 100, 100);
+  const handleTrainingToggle = () => {
+    if (!hasStarted) {
+      setSeconds(1);
+      userMotionHistoryRef.current = [];
+      feedbackSamplesRef.current = [];
+      lastFeedbackCommitSecondRef.current = null;
+      standardMotionHistoryRef.current = [];
+      setMotionSignals({ user: 0, standard: 0, userAverage: 0, standardAverage: 0 });
+      if (standardVideoRef.current) standardVideoRef.current.currentTime = 0;
+      setHasStarted(true);
+      setIsPaused(false);
+      return;
+    }
+    setIsPaused((paused) => !paused);
+  };
   const cameraIsOn = cameraEnabled && cameraState === 'ready';
 
   return (
@@ -947,7 +1309,7 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
                 className="standard-video"
                 src={course.standardVideo}
                 poster={course.image}
-                autoPlay
+                autoPlay={!isPaused}
                 muted
                 loop
                 playsInline
@@ -988,12 +1350,17 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
             </button>
           </div>
           <div className={`camera-box ${cameraState}`}>
-            <video ref={videoRef} playsInline muted />
+            <video ref={videoRef} playsInline muted autoPlay />
             {pose && cameraState === 'ready' ? (
               <PoseOverlay pose={pose} size={videoSize} tone={feedback.tone} />
-            ) : (
+            ) : cameraState !== 'ready' ? (
               <PoseSkeleton tone={feedback.tone} />
-            )}
+            ) : null}
+            {cameraState === 'ready' && !pose ? (
+              <div className="camera-hint">
+                {cameraStatusText}
+              </div>
+            ) : null}
             {cameraState === 'ready' && (
               <span className={`ai-status ${detectorState}`}>
                 {detectorState === 'ready'
@@ -1008,13 +1375,8 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
             {cameraState !== 'ready' && (
               <div className="camera-placeholder">
                 <Camera size={54} />
-                <span>
-                  {cameraState === 'denied'
-                    ? '相机权限未开启'
-                    : cameraState === 'unavailable'
-                    ? '当前环境不支持相机'
-                    : '相机画面'}
-                </span>
+                <span>{cameraStatusText}</span>
+                {cameraError ? <small>错误信息：{cameraError}</small> : null}
               </div>
             )}
           </div>
@@ -1043,9 +1405,14 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
         <p>总时长 15分钟</p>
       </div>
 
-      <button className="pause-button" type="button">
-        <Pause size={26} />
-        暂停
+      <button
+        className={isPaused ? 'pause-button resume' : 'pause-button'}
+        type="button"
+        onClick={handleTrainingToggle}
+        aria-pressed={isPaused}
+      >
+        {isPaused ? <Play size={26} /> : <Pause size={26} />}
+        {!hasStarted ? '开始' : isPaused ? '继续' : '暂停'}
       </button>
     </section>
   );

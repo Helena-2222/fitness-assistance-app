@@ -51,6 +51,16 @@
         await new Promise((resolve) => setTimeout(resolve, 25));
       };
 
+      const waitForVideoSize = async () => {
+        const started = Date.now();
+        while ((!video.videoWidth || !video.videoHeight) && Date.now() - started < 45000) {
+          await new Promise((resolve) => setTimeout(resolve, 120));
+        }
+        if (!video.videoWidth || !video.videoHeight) {
+          throw new Error('Video dimensions are unavailable');
+        }
+      };
+
       const serializePose = (pose, time) => ({
         time: Number(time.toFixed(3)),
         score: pose?.score ?? null,
@@ -70,6 +80,7 @@
         video.preload = 'auto';
         await waitForEvent(video, 'loadedmetadata');
         await waitForEvent(video, 'loadeddata');
+        await waitForVideoSize();
         const scale = Math.min(1, maxWidth / video.videoWidth);
         const detectWidth = Math.round(video.videoWidth * scale);
         const detectHeight = Math.round(video.videoHeight * scale);
