@@ -404,7 +404,7 @@ const deviceOptions = [
 ];
 
 function App() {
-  const [device, setDevice] = useState('phone');
+  const [device, setDevice] = useState('desktop');
   const [activeTab, setActiveTab] = useState('training');
   const [screen, setScreen] = useState('main');
   const [selectedCourse, setSelectedCourse] = useState(courses[0]);
@@ -462,7 +462,6 @@ function App() {
               aria-selected={device === option.key}
             >
               <span>{option.label}</span>
-              <small>{option.meta}</small>
             </button>
           ))}
         </div>
@@ -836,6 +835,7 @@ function ConsentModal({ onCancel, onAgree }) {
 function TrainingSession({ course, cameraAllowed, onClose }) {
   const standardVideoRef = useRef(null);
   const videoRef = useRef(null);
+  const posePanelRef = useRef(null);
   const streamRef = useRef(null);
   const detectorRef = useRef(null);
   const poseHistoryRef = useRef([]);
@@ -857,6 +857,7 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
   const [standardVideoSize, setStandardVideoSize] = useState({ width: 1, height: 1 });
   const [hotStats, setHotStats] = useState({ windowSize: 0, representativeIndexes: [] });
   const [videoSize, setVideoSize] = useState({ width: 1, height: 1 });
+  const [standardPanelWidth, setStandardPanelWidth] = useState(null);
   const [motionSignals, setMotionSignals] = useState({ user: 0, standard: 0, userAverage: 0, standardAverage: 0 });
   const trainingStatus = !hasStarted ? 'idle' : isPaused ? 'paused' : 'active';
   const rawFeedback = useMemo(
@@ -1189,6 +1190,42 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
     setIsPaused((paused) => !paused);
   };
   const cameraIsOn = cameraEnabled && cameraState === 'ready';
+  const resizeStandardPanel = (event) => {
+    const panel = posePanelRef.current;
+    if (!panel) return;
+    event.preventDefault();
+
+    const updateWidth = (clientX) => {
+      const rect = panel.getBoundingClientRect();
+      const style = window.getComputedStyle(panel);
+      const paddingLeft = parseFloat(style.paddingLeft) || 0;
+      const paddingRight = parseFloat(style.paddingRight) || 0;
+      const columnGap = parseFloat(style.columnGap) || parseFloat(style.gap) || 0;
+      const dividerWidth = 10;
+      const innerLeft = rect.left + paddingLeft;
+      const innerWidth = rect.width - paddingLeft - paddingRight;
+      const minWidth = Math.min(320, innerWidth);
+      const maxWidth = Math.max(minWidth, innerWidth - dividerWidth - columnGap * 2);
+      const nextWidth = Math.min(maxWidth, Math.max(minWidth, clientX - innerLeft));
+
+      setStandardPanelWidth(nextWidth);
+    };
+
+    updateWidth(event.clientX);
+
+    const handlePointerMove = (moveEvent) => {
+      updateWidth(moveEvent.clientX);
+    };
+    const stopResize = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopResize);
+      window.removeEventListener('pointercancel', stopResize);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopResize);
+    window.addEventListener('pointercancel', stopResize);
+  };
 
   return (
     <section className="training-session">
@@ -1202,7 +1239,11 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
         </div>
       </div>
 
-      <div className="pose-panel">
+      <div
+        className="pose-panel"
+        ref={posePanelRef}
+        style={standardPanelWidth ? { '--standard-panel-width': `${standardPanelWidth}px` } : undefined}
+      >
         <div className="pose-column">
           <h3>标准动作</h3>
           {course.standardVideo ? (
@@ -1238,7 +1279,13 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
           )}
           <p>{feedback.cue}</p>
         </div>
-        <div className="panel-divider" />
+        <div
+          className="panel-divider"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize standard panel"
+          onPointerDown={resizeStandardPanel}
+        />
         <div className="pose-column camera-column">
           <div className="camera-title-row">
             <h3>你的动作</h3>

@@ -61,7 +61,7 @@ img {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  max-width: 1240px;
+  max-width: none;
   width: 100%;
   margin: 0 auto;
 }
@@ -91,13 +91,17 @@ img {
 }
 
 .device-switch button {
-  min-width: 104px;
+  min-width: 112px;
+  height: 44px;
   border: 0;
   border-radius: 12px;
-  padding: 9px 13px;
+  padding: 0 20px;
   color: var(--muted);
   background: transparent;
-  text-align: left;
+  text-align: center;
+  display: grid;
+  place-items: center;
+  white-space: nowrap;
 }
 
 .device-switch button span,
@@ -151,8 +155,9 @@ img {
 }
 
 .device-frame.desktop {
-  --device-width: 1180px;
-  --device-height: 760px;
+  --device-width: calc(100vw - 44px);
+  --device-height: calc(100vh - 130px);
+  --session-media-height: clamp(390px, calc(100vh - 455px), 700px);
   border-radius: 24px;
 }
 
@@ -1072,22 +1077,39 @@ img {
   font-weight: 950;
 }
 
+.session-top > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .session-top span {
-  display: block;
-  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0;
   color: var(--lime);
   font-size: 17px;
   font-weight: 950;
+  white-space: nowrap;
 }
 
 .pose-panel {
   display: grid;
-  grid-template-columns: 1fr 1px 1fr;
+  grid-template-columns: minmax(0, var(--standard-panel-width, 1fr)) 10px minmax(0, 1fr);
   gap: 15px;
   margin-top: 28px;
   padding: 20px 14px 18px;
   border-radius: 27px;
   background: var(--panel);
+}
+
+.pose-column {
+  min-width: 0;
+}
+
+.camera-column {
+  overflow: hidden;
 }
 
 .pose-column h3 {
@@ -1152,9 +1174,24 @@ img {
 }
 
 .panel-divider {
-  width: 1px;
+  position: relative;
+  width: 10px;
   min-height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.panel-divider::before {
+  content: "";
+  position: absolute;
+  inset: 0 4px;
+  border-radius: 999px;
   background: var(--line);
+}
+
+.panel-divider:hover::before,
+.panel-divider:active::before {
+  background: var(--lime);
 }
 
 .camera-title-row {
@@ -1673,9 +1710,9 @@ img {
 }
 
 .device-frame.desktop .detail-content {
-  padding: 32px 42px 40px 138px;
+  padding: 32px 42px 40px 18px;
   display: grid;
-  grid-template-columns: minmax(0, 0.75fr) minmax(360px, 0.55fr);
+  grid-template-columns: minmax(0, 1.55fr) minmax(360px, 1fr);
   gap: 22px 28px;
 }
 
@@ -1699,7 +1736,7 @@ img {
 .device-frame.desktop .training-session {
   padding: 20px 36px 22px;
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.6fr);
+  grid-template-columns: minmax(0, 1fr) 296px;
   grid-template-rows: auto auto 1fr auto;
   gap: 18px 24px;
   align-items: start;
@@ -1719,7 +1756,7 @@ img {
 
 .device-frame.desktop .pose-column {
   display: grid;
-  grid-template-rows: 36px 390px 46px;
+  grid-template-rows: 40px var(--session-media-height) 46px;
   align-items: start;
 }
 
@@ -1746,7 +1783,7 @@ img {
 .device-frame.desktop .standard-media,
 .device-frame.desktop .standard-video,
 .device-frame.desktop .camera-box {
-  height: 390px;
+  height: var(--session-media-height);
 }
 
 .device-frame.desktop .pose-column p {
