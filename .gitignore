@@ -1,0 +1,7 @@
+node_modules/
+node_modules/.vite/
+# Source video files (transcoded versions in public/courses/)
+*.mp4
+!public/courses/*.mp4
+# Temp
+temp_frames/
