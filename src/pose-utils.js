@@ -95,13 +95,39 @@ export function compareToStandardPose(userPose, standardPose, matchKeypoints = D
     const userPoint = normalizedPoint(userPose, name, userAnchor);
     const standardPoint = normalizedPoint(standardPose, name, standardAnchor);
     if (!userPoint || !standardPoint) continue;
-    distances.push(Math.hypot(userPoint.x - standardPoint.x, userPoint.y - standardPoint.y));
+    distances.push({
+      name,
+      distance: Math.hypot(userPoint.x - standardPoint.x, userPoint.y - standardPoint.y)
+    });
   }
 
   if (distances.length < 6) return null;
-  const averageDistance = distances.reduce((sum, value) => sum + value, 0) / distances.length;
-  const score = Math.max(28, Math.min(100, Math.round(100 - averageDistance * 52)));
-  return { score, matchedPoints: distances.length, averageDistance };
+  const averageDistance = distances.reduce((sum, value) => sum + value.distance, 0) / distances.length;
+  const score = Math.max(0, Math.min(100, Math.round(100 - averageDistance * 78)));
+  const groupTotals = distances.reduce((groups, point) => {
+    const group = point.name.includes('wrist') || point.name.includes('elbow') || point.name.includes('shoulder')
+      ? 'arms'
+      : point.name.includes('knee') || point.name.includes('ankle')
+      ? 'legs'
+      : 'torso';
+
+    const current = groups[group] ?? { total: 0, count: 0 };
+    groups[group] = { total: current.total + point.distance, count: current.count + 1 };
+    return groups;
+  }, {});
+  const groupDistances = Object.fromEntries(
+    Object.entries(groupTotals).map(([group, value]) => [group, value.total / value.count])
+  );
+  const worstGroup = Object.entries(groupDistances)
+    .sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'whole';
+
+  return {
+    score,
+    matchedPoints: distances.length,
+    averageDistance,
+    pointDistances: distances,
+    worstGroup
+  };
 }
 
 export function poseDistance(poseA, poseB, matchKeypoints = DEFAULT_MATCH_KEYPOINTS) {

@@ -74,6 +74,57 @@ function scoreBand(score, standardIsMoving, userMotion, motionRatio, seconds, ma
   return { score, ...fb.shared.poor };
 }
 
+function correctionForWorstGroup(worstGroup) {
+  const corrections = {
+    arms: {
+      message: '手臂位置偏差较大',
+      cue: '先对齐肩膀、手肘和手腕的位置，再跟着标准动作同方向打开或收回手臂'
+    },
+    legs: {
+      message: '腿部位置偏差较大',
+      cue: '先对齐膝盖和脚踝位置，注意脚步打开、抬腿或支撑方向是否和标准动作一致'
+    },
+    torso: {
+      message: '身体朝向偏差较大',
+      cue: '先调整肩膀、髋部和躯干角度，让身体中线接近标准动作'
+    },
+    whole: {
+      message: '动作整体和标准差异较大',
+      cue: '先暂停看清当前动作，再从标准动作的起始姿态重新跟练'
+    }
+  };
+
+  return corrections[worstGroup] ?? corrections.whole;
+}
+
+export function applyStandardPoseIdentityGate(result, matchResult, standardPose) {
+  if (!standardPose || !matchResult) return result;
+
+  const correction = correctionForWorstGroup(matchResult.worstGroup);
+
+  if (matchResult.score < 55) {
+    return {
+      ...result,
+      score: Math.min(result.score, 45),
+      message: correction.message,
+      cue: correction.cue,
+      tone: 'warn'
+    };
+  }
+
+  if (matchResult.score < 68) {
+    return {
+      ...result,
+      score: Math.min(result.score, 62),
+      message: correction.message,
+      cue: `接近标准了，${correction.cue}`,
+      tone: 'warn'
+    };
+  }
+
+  return result;
+}
+
 export default {
   id: 'base',
   focusKeypoints: DEFAULT_MATCH_KEYPOINTS,
@@ -105,12 +156,14 @@ export default {
     const band = scoreBand(score, standardIsMoving, userMotion, motionRatio, context.seconds, matchResult);
     score = band.score ?? score;
 
-    return {
+    const result = {
       action: '跟练评分',
       score: Math.max(30, Math.min(98, Math.round(score))),
       message: band.message,
       cue: band.cue,
       tone: band.tone
     };
+
+    return applyStandardPoseIdentityGate(result, matchResult, standardPose);
   }
 };

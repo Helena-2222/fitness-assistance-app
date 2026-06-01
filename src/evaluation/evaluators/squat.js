@@ -5,7 +5,7 @@ import {
   isVisible,
   pointByName
 } from '../../pose-utils.js';
-import { runGuardChecks } from '../base-evaluator.js';
+import { applyStandardPoseIdentityGate, runGuardChecks } from '../base-evaluator.js';
 import fb from '../feedback/zh-CN.js';
 
 export default {
@@ -106,12 +106,14 @@ export default {
       tone = fb.squat.kneesInward.tone;
     }
 
-    return {
+    const result = {
       action: '跟练评分',
       score: Math.max(45, Math.min(98, Math.round(score))),
       message,
       cue,
       tone
     };
+
+    return applyStandardPoseIdentityGate(result, matchResult, standardPose);
   }
 };

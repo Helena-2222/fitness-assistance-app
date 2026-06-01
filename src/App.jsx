@@ -851,6 +851,7 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
   const [detectorState, setDetectorState] = useState('idle');
   const [hasStarted, setHasStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(true);
+  const [standardVideoMuted, setStandardVideoMuted] = useState(true);
   const [pose, setPose] = useState(null);
   const [standardPoseData, setStandardPoseData] = useState(null);
   const [standardPose, setStandardPose] = useState(null);
@@ -932,13 +933,15 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
     const video = standardVideoRef.current;
     if (!video) return;
 
+    video.muted = standardVideoMuted;
+
     if (!hasStarted || isPaused) {
       video.pause();
       return;
     }
 
     video.play().catch(() => {});
-  }, [hasStarted, isPaused]);
+  }, [hasStarted, isPaused, standardVideoMuted]);
 
   useEffect(() => {
     let active = true;
@@ -1190,6 +1193,12 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
     setIsPaused((paused) => !paused);
   };
   const cameraIsOn = cameraEnabled && cameraState === 'ready';
+  const syncStandardVideoMuted = () => {
+    const video = standardVideoRef.current;
+    if (video) {
+      setStandardVideoMuted(video.muted);
+    }
+  };
   const resizeStandardPanel = (event) => {
     const panel = posePanelRef.current;
     if (!panel) return;
@@ -1254,10 +1263,11 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
                 src={course.standardVideo}
                 poster={course.image}
                 autoPlay={!isPaused}
-                muted
+                muted={standardVideoMuted}
                 loop
                 playsInline
                 controls
+                onVolumeChange={syncStandardVideoMuted}
               />
               {standardPose && (
                 <PoseOverlay
@@ -1336,6 +1346,7 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
         </div>
       </div>
 
+      <aside className="session-sidebar">
       <div className="session-feedback">
         <h2>{feedback.action}</h2>
         <div className="micro-progress"><span style={{ width: `${Math.max(4, feedback.score)}%` }} /></div>
@@ -1364,6 +1375,7 @@ function TrainingSession({ course, cameraAllowed, onClose }) {
         {isPaused ? <Play size={26} /> : <Pause size={26} />}
         {!hasStarted ? '开始' : isPaused ? '继续' : '暂停'}
       </button>
+      </aside>
     </section>
   );
 }
